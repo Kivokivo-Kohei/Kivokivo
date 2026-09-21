@@ -1,26 +1,391 @@
-@import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+* {
+  box-sizing: border-box;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #faf9f4;
+  color: #344039;
+  font-family: Arial, "Yu Gothic", Meiryo, sans-serif;
+}
+
+/* =========================
+   DM画面
+========================= */
+
+.chatApp {
+  min-height: 100dvh;
+  background: #faf9f4;
+}
+
+.newChatPage {
+  width: min(760px, 100%);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 28px 24px 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.newBackButton {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  border: none;
+  background: transparent;
+
+  color: #3f4e40;
+  font-size: 17px;
+
+  padding: 8px 3px;
+  margin-bottom: 22px;
+
+  cursor: pointer;
+}
+
+.newBackButton span {
+  font-size: 25px;
+}
+
+/* 相手のプロフィール部分 */
+
+.newChatHeader {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+  gap: 22px;
+
+  background: #fff;
+  border: 1px solid #efeee7;
+  border-radius: 22px;
+
+  padding: 24px 28px;
+
+  box-shadow: 0 8px 28px rgba(61, 68, 56, 0.06);
+}
+
+.chatAvatar {
+  width: 72px;
+  height: 72px;
+
+  flex-shrink: 0;
+
+  border-radius: 50%;
+
+  background: #e1e6d9;
+  color: #435243;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.chatPerson {
+  min-width: 0;
+}
+
+.chatPerson h2 {
+  margin: 0 0 8px;
+
+  color: #40503f;
+
+  font-size: 29px;
+  font-weight: 700;
+
+  line-height: 1.2;
+}
+
+.directMessageLabel {
+  color: #657064;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  letter-spacing: 2.5px;
+}
+
+/* =========================
+   メッセージ部分
+========================= */
+
+.newChatMessages {
+  flex: 1;
+
+  min-height: 420px;
+
+  display: flex;
+  flex-direction: column;
+
+  padding: 30px 5px;
+}
+
+.newEmptyChat {
+  flex: 1;
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  text-align: center;
+}
+
+.newEmptyChat strong {
+  display: block;
+
+  color: #404740;
+
+  font-size: 20px;
+  font-weight: 700;
+
+  margin-bottom: 14px;
+}
+
+.newEmptyChat span {
+  color: #92968f;
+
+  font-size: 16px;
+}
+
+/* =========================
+   メッセージ吹き出し
+========================= */
+
+.messageArea {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 15px;
+}
+
+.messageRow {
+  display: flex;
+  justify-content: flex-start;
+
+  margin-bottom: 12px;
+}
+
+.messageRow.mine {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 75%;
+
+  padding: 11px 15px;
+
+  border-radius: 18px;
+
+  line-height: 1.6;
+  font-size: 15px;
+
+  overflow-wrap: anywhere;
+}
+
+.mineBubble {
+  background: #687d61;
+  color: white;
+
+  border-bottom-right-radius: 5px;
+}
+
+.otherBubble {
+  background: white;
+  color: #3f493f;
+
+  border: 1px solid #e8e7df;
+
+  border-bottom-left-radius: 5px;
+}
+
+/* =========================
+   下の入力欄
+========================= */
+
+.newChatInputArea {
+  position: fixed;
+
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  z-index: 1000;
+
+  background: rgba(255, 255, 252, 0.98);
+
+  border-top: 1px solid #e8e7df;
+
+  padding: 14px 16px
+    calc(14px + env(safe-area-inset-bottom));
+}
+
+.newChatInputInner {
+  width: min(712px, 100%);
+
+  margin: 0 auto;
+
+  display: flex;
+  align-items: stretch;
+
+  gap: 12px;
+}
+
+.newChatInputInner input {
+  flex: 1;
+  min-width: 0;
+
+  height: 54px;
+
+  padding: 0 18px;
+
+  border: 1px solid #dcded6;
+  border-radius: 17px;
+
+  background: white;
+  color: #394439;
+
+  font-size: 16px;
+
+  outline: none;
+}
+
+.newChatInputInner input:focus {
+  border-color: #8a9983;
+}
+
+.newChatInputInner input::placeholder {
+  color: #a2a5a0;
+}
+
+.newChatInputInner button {
+  width: 92px;
+
+  border: none;
+  border-radius: 17px;
+
+  background: #687b60;
+  color: white;
+
+  font-size: 16px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.newChatInputInner button:disabled {
+  opacity: 0.55;
+}
+
+/* =========================
+   スマホ
+========================= */
+
+@media (max-width: 650px) {
+  .newChatPage {
+    width: 100%;
+    height: 100dvh;
+
+    padding: 16px 14px 90px;
+  }
+
+  .newBackButton {
+    font-size: 15px;
+
+    margin-bottom: 14px;
+
+    padding: 5px 1px;
+  }
+
+  .newBackButton span {
+    font-size: 22px;
+  }
+
+  .newChatHeader {
+    border-radius: 18px;
+
+    padding: 18px;
+
+    gap: 16px;
+  }
+
+  .chatAvatar {
+    width: 58px;
+    height: 58px;
+
+    font-size: 25px;
+  }
+
+  .chatPerson h2 {
+    font-size: 23px;
+
+    margin-bottom: 6px;
+  }
+
+  .directMessageLabel {
+    font-size: 10px;
+
+    letter-spacing: 2px;
+  }
+
+  .newChatMessages {
+    min-height: 0;
+
+    padding: 20px 8px 10px;
+
+    overflow-y: auto;
+  }
+
+  .newEmptyChat strong {
+    font-size: 17px;
+
+    margin-bottom: 10px;
+  }
+
+  .newEmptyChat span {
+    font-size: 14px;
+  }
+
+  .bubble {
+    max-width: 82%;
+
+    font-size: 14px;
+  }
+
+  .newChatInputArea {
+    padding: 10px 12px
+      calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .newChatInputInner {
+    gap: 8px;
+  }
+
+  .newChatInputInner input {
+    height: 50px;
+
+    padding: 0 14px;
+
+    border-radius: 15px;
+
+    font-size: 16px;
+  }
+
+  .newChatInputInner button {
+    width: 72px;
+
+    border-radius: 15px;
+
+    font-size: 15px;
+  }
 }

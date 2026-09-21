@@ -78,6 +78,7 @@ export default function Home() {
     useState<"board" | "messages" | "mypage">("board");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+
   const [activeConversation, setActiveConversation] =
     useState<Conversation | null>(null);
 
@@ -131,8 +132,7 @@ export default function Home() {
   }, []);
 
   // =========================================================
-  // LOAD MY PROFILE
-  // participantsのリアルタイム一覧から自分を取得
+  // MY PROFILE
   // =========================================================
 
   useEffect(() => {
@@ -172,7 +172,6 @@ export default function Home() {
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
       console.error("Googleログインエラー:", error);
-
       setLoginMessage(
         error?.message || "Googleログインに失敗しました。"
       );
@@ -194,7 +193,6 @@ export default function Home() {
 
   // =========================================================
   // SAVE PROFILE
-  // Google UIDをdocument IDにする
   // =========================================================
 
   const saveProfile = async () => {
@@ -247,8 +245,11 @@ export default function Home() {
       alert("プロフィールを保存しました！");
     } catch (error: any) {
       console.error("プロフィール保存エラー:", error);
+
       alert(
-        `プロフィールを保存できませんでした。\n${error?.message || ""}`
+        `プロフィールを保存できませんでした。\n${
+          error?.message || ""
+        }`
       );
     }
   };
@@ -263,7 +264,6 @@ export default function Home() {
 
   // =========================================================
   // START DM
-  // getDocを先にしない。setDoc mergeで直接作成。
   // =========================================================
 
   const contactParticipant = async (participant: Participant) => {
@@ -290,9 +290,7 @@ export default function Home() {
     }
 
     if (!participant.uid) {
-      alert(
-        "このプロフィールは古いテストデータのためDMできません。"
-      );
+      alert("このプロフィールにはDMできません。");
       return;
     }
 
@@ -320,31 +318,30 @@ export default function Home() {
         conversationId
       );
 
-      // conversationを直接作る/既存なら統合
       await setDoc(
         conversationRef,
         {
           members,
           memberNames,
-          lastMessage: "",
-          lastMessageAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
-          [`unread.${user.uid}`]: 0,
-          [`unread.${participant.uid}`]: 0,
+          updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
-      const conversation: Conversation = {
-        id: conversationId,
-        members,
-        memberNames,
-        lastMessage: "",
-        unread: {
-          [user.uid]: 0,
-          [participant.uid]: 0,
-        },
-      };
+      const existingConversation = conversations.find(
+        (conversation) => conversation.id === conversationId
+      );
+
+      const conversation: Conversation =
+        existingConversation || {
+          id: conversationId,
+          members,
+          memberNames,
+          unread: {
+            [user.uid]: 0,
+            [participant.uid]: 0,
+          },
+        };
 
       setActiveConversation(conversation);
       setSelectedParticipant(null);
@@ -352,14 +349,15 @@ export default function Home() {
       console.error("DM開始エラー:", error);
 
       alert(
-        `DMを開始できませんでした。\n\n${error?.message || "Unknown error"}`
+        `DMを開始できませんでした。\n\n${
+          error?.message || "Unknown error"
+        }`
       );
     }
   };
 
   // =========================================================
-  // MY CONVERSATIONS
-  // 自分がmembersにいるものしか問い合わせない
+  // CONVERSATIONS
   // =========================================================
 
   useEffect(() => {
@@ -412,7 +410,7 @@ export default function Home() {
   }, [user]);
 
   // =========================================================
-  // UNREAD TOTAL
+  // UNREAD
   // =========================================================
 
   const unreadTotal = useMemo(() => {
@@ -531,6 +529,7 @@ export default function Home() {
           lastMessage: text,
           lastMessageAt: serverTimestamp(),
           [`unread.${otherUid}`]: increment(1),
+          [`unread.${user.uid}`]: 0,
         }
       );
 
@@ -539,7 +538,9 @@ export default function Home() {
       console.error("メッセージ送信エラー:", error);
 
       alert(
-        `メッセージを送信できませんでした。\n${error?.message || ""}`
+        `メッセージを送信できませんでした。\n${
+          error?.message || ""
+        }`
       );
     }
   };
@@ -558,77 +559,97 @@ export default function Home() {
         activeConversation.memberNames?.[otherUid]) ||
       "参加者";
 
+    const initial = otherName.trim().charAt(0) || "人";
+
     return (
-      <main className="app">
-        <div className="chatPage">
+      <main className="app chatApp">
+        <div className="newChatPage">
           <button
-            className="backButton"
+            className="newBackButton"
             onClick={() => {
               setActiveConversation(null);
               setTab("messages");
             }}
           >
-            ← メッセージ一覧
+            <span>←</span>
+            メッセージ一覧
           </button>
 
-          <section className="chatHeader">
-            <div>
-              <div className="eyebrow">DIRECT MESSAGE</div>
-              <h2>{otherName}</h2>
-            </div>
+          <section className="newChatHeader">
+            <div className="chatAvatar">{initial}</div>
 
-            <div className="secureLabel">
-              🔒 2人だけの会話
+            <div className="chatPerson">
+              <h2>{otherName}</h2>
+              <div className="directMessageLabel">
+                DIRECT MESSAGE
+              </div>
             </div>
           </section>
 
-          <section className="chatMessages">
+          <section className="newChatMessages">
             {messages.length === 0 ? (
-              <div className="emptyChat">
-                <div className="coffee">☕</div>
-                まだメッセージはありません。
-                <br />
-                気軽に話しかけてみましょう。
+              <div className="newEmptyChat">
+                <strong>
+                  まだメッセージはありません。
+                </strong>
+
+                <span>
+                  気軽に話しかけてみましょう。
+                </span>
               </div>
             ) : (
-              messages.map((message) => {
-                const mine = message.senderUid === user.uid;
+              <div className="messageArea">
+                {messages.map((message) => {
+                  const mine =
+                    message.senderUid === user.uid;
 
-                return (
-                  <div
-                    key={message.id}
-                    className={
-                      mine ? "messageRow mine" : "messageRow"
-                    }
-                  >
+                  return (
                     <div
+                      key={message.id}
                       className={
                         mine
-                          ? "bubble mineBubble"
-                          : "bubble otherBubble"
+                          ? "messageRow mine"
+                          : "messageRow"
                       }
                     >
-                      {message.text}
+                      <div
+                        className={
+                          mine
+                            ? "bubble mineBubble"
+                            : "bubble otherBubble"
+                        }
+                      >
+                        {message.text}
+                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </section>
 
-          <div className="chatInput">
-            <input
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  sendMessage();
+          <div className="newChatInputArea">
+            <div className="newChatInputInner">
+              <input
+                value={messageText}
+                onChange={(e) =>
+                  setMessageText(e.target.value)
                 }
-              }}
-              placeholder="メッセージを入力..."
-            />
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    sendMessage();
+                  }
+                }}
+                placeholder="メッセージを入力..."
+              />
 
-            <button onClick={sendMessage}>送信</button>
+              <button
+                onClick={sendMessage}
+                disabled={!messageText.trim()}
+              >
+                送信
+              </button>
+            </div>
           </div>
         </div>
       </main>
@@ -636,7 +657,7 @@ export default function Home() {
   }
 
   // =========================================================
-  // MAIN
+  // MAIN UI
   // =========================================================
 
   return (
@@ -647,6 +668,7 @@ export default function Home() {
             <h1>
               KIVO Cafe <span>☕</span>
             </h1>
+
             <p>つながる・ひろがる・また会える</p>
           </div>
 
@@ -685,8 +707,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* BOARD */}
-
         {tab === "board" && (
           <>
             <section className="boardHeading">
@@ -718,46 +738,62 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="stickyGrid">
-                    {participants.map((participant, index) => (
-                      <button
-                        key={participant.id}
-                        className="sticky"
-                        style={{
-                          background:
-                            stickyColors[
-                              index % stickyColors.length
-                            ],
-                          transform: `rotate(${
-                            index % 2 === 0 ? "-1deg" : "1deg"
-                          })`,
-                        }}
-                        onClick={() =>
-                          setSelectedParticipant(participant)
-                        }
-                      >
-                        <span className="pin" />
+                    {participants.map(
+                      (participant, index) => (
+                        <button
+                          key={participant.id}
+                          className="sticky"
+                          style={{
+                            background:
+                              stickyColors[
+                                index %
+                                  stickyColors.length
+                              ],
 
-                        <strong>{participant.name}</strong>
+                            transform: `rotate(${
+                              index % 2 === 0
+                                ? "-1deg"
+                                : "1deg"
+                            })`,
+                          }}
+                          onClick={() =>
+                            setSelectedParticipant(
+                              participant
+                            )
+                          }
+                        >
+                          <span className="pin" />
 
-                        <div className="stickyLine" />
+                          <strong>
+                            {participant.name}
+                          </strong>
 
-                        <span>
-                          💼 {participant.occupation || "未設定"}
-                        </span>
+                          <div className="stickyLine" />
 
-                        <span>
-                          🏷️ {participant.industry || "未設定"}
-                        </span>
-
-                        {participant.sns && (
                           <span>
-                            📱 {participant.sns}
+                            💼{" "}
+                            {participant.occupation ||
+                              "未設定"}
                           </span>
-                        )}
 
-                        <small>プロフィールを見る →</small>
-                      </button>
-                    ))}
+                          <span>
+                            🏷️{" "}
+                            {participant.industry ||
+                              "未設定"}
+                          </span>
+
+                          {participant.sns && (
+                            <span>
+                              📱 {participant.sns}
+                            </span>
+                          )}
+
+                          <small>
+                            プロフィールを見る →
+                          </small>
+                        </button>
+                      )
+                    )}
                   </div>
                 )}
 
@@ -773,21 +809,23 @@ export default function Home() {
           </>
         )}
 
-        {/* MESSAGES */}
-
         {tab === "messages" && (
           <section className="contentCard">
-            <div className="eyebrow">MESSAGES</div>
+            <div className="eyebrow">
+              MESSAGES
+            </div>
+
             <h2>💬 メッセージ</h2>
 
             {!user ? (
               <div className="loginPrompt">
-                <div className="bigIcon">🔐</div>
-
-                <h3>メッセージを見るにはログイン</h3>
+                <h3>
+                  メッセージを見るにはログイン
+                </h3>
 
                 <p>
-                  DMは会話している本人同士だけが確認できます。
+                  DMは会話している本人同士だけが
+                  確認できます。
                 </p>
 
                 <button
@@ -799,93 +837,110 @@ export default function Home() {
               </div>
             ) : !myProfile ? (
               <div className="loginPrompt">
-                <h3>まずプロフィールを登録してください</h3>
+                <h3>
+                  まずプロフィールを登録してください
+                </h3>
 
                 <p>
-                  プロフィール登録後にDMを利用できます。
+                  プロフィール登録後にDMを
+                  利用できます。
                 </p>
 
                 <button
                   className="primaryButton"
-                  onClick={() => setTab("mypage")}
+                  onClick={() =>
+                    setTab("mypage")
+                  }
                 >
                   マイページへ
                 </button>
               </div>
             ) : conversations.length === 0 ? (
               <div className="emptyContent">
-                <div className="bigIcon">💬</div>
                 まだメッセージはありません。
                 <br />
-                掲示板から話してみたい人を探してみましょう。
+                掲示板から話してみたい人を
+                探してみましょう。
               </div>
             ) : (
               <div className="conversationList">
-                {conversations.map((conversation) => {
-                  const otherUid =
-                    conversation.members.find(
-                      (uid) => uid !== user.uid
+                {conversations.map(
+                  (conversation) => {
+                    const otherUid =
+                      conversation.members.find(
+                        (uid) =>
+                          uid !== user.uid
+                      );
+
+                    const otherName =
+                      (otherUid &&
+                        conversation.memberNames?.[
+                          otherUid
+                        ]) ||
+                      "参加者";
+
+                    const unread =
+                      conversation.unread?.[
+                        user.uid
+                      ] || 0;
+
+                    return (
+                      <button
+                        key={conversation.id}
+                        className="conversation"
+                        onClick={() =>
+                          openConversation(
+                            conversation
+                          )
+                        }
+                      >
+                        <div className="avatar">
+                          {otherName.charAt(0)}
+                        </div>
+
+                        <div className="conversationText">
+                          <strong>
+                            {otherName}
+                          </strong>
+
+                          <span>
+                            {conversation.lastMessage ||
+                              "会話を始めましょう"}
+                          </span>
+                        </div>
+
+                        {unread > 0 && (
+                          <span className="unreadBadge">
+                            {unread > 99
+                              ? "99+"
+                              : unread}
+                          </span>
+                        )}
+                      </button>
                     );
-
-                  const otherName =
-                    (otherUid &&
-                      conversation.memberNames?.[otherUid]) ||
-                    "参加者";
-
-                  const unread =
-                    conversation.unread?.[user.uid] || 0;
-
-                  return (
-                    <button
-                      key={conversation.id}
-                      className="conversation"
-                      onClick={() =>
-                        openConversation(conversation)
-                      }
-                    >
-                      <div className="avatar">
-                        {otherName.charAt(0)}
-                      </div>
-
-                      <div className="conversationText">
-                        <strong>{otherName}</strong>
-
-                        <span>
-                          {conversation.lastMessage ||
-                            "会話を始めましょう"}
-                        </span>
-                      </div>
-
-                      {unread > 0 && (
-                        <span className="unreadBadge">
-                          {unread > 99 ? "99+" : unread}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                  }
+                )}
               </div>
             )}
           </section>
         )}
 
-        {/* MY PAGE */}
-
         {tab === "mypage" && (
           <section className="contentCard">
-            <div className="eyebrow">MY PAGE</div>
+            <div className="eyebrow">
+              MY PAGE
+            </div>
+
             <h2>👤 マイページ</h2>
 
             {!user ? (
               <div className="loginPrompt">
-                <div className="bigIcon">👤</div>
-
-                <h3>あなた専用のマイページ</h3>
+                <h3>
+                  あなた専用のマイページ
+                </h3>
 
                 <p>
                   Googleアカウントで本人確認します。
-                  他の参加者があなたのマイページに
-                  ログインすることはできません。
                 </p>
 
                 <button
@@ -900,14 +955,16 @@ export default function Home() {
                 {unreadTotal > 0 && (
                   <button
                     className="myPageNotification"
-                    onClick={() => setTab("messages")}
+                    onClick={() =>
+                      setTab("messages")
+                    }
                   >
-                    <span className="notificationText">
-                      💬 新着メッセージがあります
-                    </span>
+                    💬 新着メッセージがあります
 
-                    <span className="notificationNumber">
-                      {unreadTotal > 99 ? "99+" : unreadTotal}
+                    <span>
+                      {unreadTotal > 99
+                        ? "99+"
+                        : unreadTotal}
                     </span>
                   </button>
                 )}
@@ -929,7 +986,9 @@ export default function Home() {
                     <input
                       value={occupation}
                       onChange={(e) =>
-                        setOccupation(e.target.value)
+                        setOccupation(
+                          e.target.value
+                        )
                       }
                       placeholder="例）大学院生"
                     />
@@ -940,7 +999,9 @@ export default function Home() {
                     <input
                       value={industry}
                       onChange={(e) =>
-                        setIndustry(e.target.value)
+                        setIndustry(
+                          e.target.value
+                        )
                       }
                       placeholder="例）教育"
                     />
@@ -966,24 +1027,17 @@ export default function Home() {
                       : "プロフィールを登録"}
                   </button>
                 </div>
-
-                {myProfile && (
-                  <div className="profileSaved">
-                    ✓ このプロフィールはあなたのGoogleアカウントに
-                    紐づいています。
-                  </div>
-                )}
               </>
             )}
           </section>
         )}
       </div>
 
-      {/* BOTTOM NAV */}
-
       <nav className="bottomNav">
         <button
-          className={tab === "board" ? "active" : ""}
+          className={
+            tab === "board" ? "active" : ""
+          }
           onClick={() => setTab("board")}
         >
           <span>📌</span>
@@ -991,7 +1045,9 @@ export default function Home() {
         </button>
 
         <button
-          className={tab === "messages" ? "active" : ""}
+          className={
+            tab === "messages" ? "active" : ""
+          }
           onClick={() => setTab("messages")}
         >
           <span className="navIcon">
@@ -999,7 +1055,9 @@ export default function Home() {
 
             {unreadTotal > 0 && (
               <b>
-                {unreadTotal > 99 ? "99+" : unreadTotal}
+                {unreadTotal > 99
+                  ? "99+"
+                  : unreadTotal}
               </b>
             )}
           </span>
@@ -1008,7 +1066,9 @@ export default function Home() {
         </button>
 
         <button
-          className={tab === "mypage" ? "active" : ""}
+          className={
+            tab === "mypage" ? "active" : ""
+          }
           onClick={() => setTab("mypage")}
         >
           <span>👤</span>
@@ -1016,16 +1076,18 @@ export default function Home() {
         </button>
       </nav>
 
-      {/* PROFILE MODAL */}
-
       {selectedParticipant && (
         <div
           className="overlay"
-          onClick={() => setSelectedParticipant(null)}
+          onClick={() =>
+            setSelectedParticipant(null)
+          }
         >
           <div
             className="profileModal"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              e.stopPropagation()
+            }
           >
             <button
               className="close"
@@ -1038,30 +1100,37 @@ export default function Home() {
 
             <div className="modalPin" />
 
-            <h2>{selectedParticipant.name}</h2>
+            <h2>
+              {selectedParticipant.name}
+            </h2>
 
             <div className="profileItem">
               <small>職業</small>
               <span>
-                {selectedParticipant.occupation || "未設定"}
+                {selectedParticipant.occupation ||
+                  "未設定"}
               </span>
             </div>
 
             <div className="profileItem">
               <small>業界</small>
               <span>
-                {selectedParticipant.industry || "未設定"}
+                {selectedParticipant.industry ||
+                  "未設定"}
               </span>
             </div>
 
             {selectedParticipant.sns && (
               <div className="profileItem">
                 <small>SNS</small>
-                <span>{selectedParticipant.sns}</span>
+                <span>
+                  {selectedParticipant.sns}
+                </span>
               </div>
             )}
 
-            {user?.uid === selectedParticipant.uid ? (
+            {user?.uid ===
+            selectedParticipant.uid ? (
               <button
                 className="secondaryButton"
                 onClick={() => {
@@ -1069,13 +1138,15 @@ export default function Home() {
                   setTab("mypage");
                 }}
               >
-                👤 自分のマイページを開く
+                自分のマイページを開く
               </button>
             ) : (
               <button
                 className="primaryButton"
                 onClick={() =>
-                  contactParticipant(selectedParticipant)
+                  contactParticipant(
+                    selectedParticipant
+                  )
                 }
               >
                 ✉ この人にDMする
@@ -1085,9 +1156,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* CSS */}
-
-      <style jsx global>{`
+      <style>{`
         * {
           box-sizing: border-box;
         }
@@ -1097,7 +1166,7 @@ export default function Home() {
           margin: 0;
           padding: 0;
           width: 100%;
-          overflow-x: hidden;
+          min-height: 100%;
           background: #f8f7f0;
         }
 
@@ -1130,9 +1199,14 @@ export default function Home() {
         }
 
         .container {
-          width: min(1180px, calc(100% - 32px));
+          width: min(
+            1180px,
+            calc(100% - 32px)
+          );
           margin: 0 auto;
         }
+
+        /* HEADER */
 
         .header {
           min-height: 130px;
@@ -1146,7 +1220,11 @@ export default function Home() {
         .header h1 {
           margin: 0;
           font-family: Georgia, serif;
-          font-size: clamp(36px, 6vw, 56px);
+          font-size: clamp(
+            36px,
+            6vw,
+            56px
+          );
           font-weight: 500;
           letter-spacing: 3px;
           color: #365046;
@@ -1190,13 +1268,7 @@ export default function Home() {
           border-radius: 7px;
         }
 
-        .eyebrow {
-          color: #85937f;
-          letter-spacing: 3px;
-          font-size: 11px;
-          font-weight: 800;
-          margin-bottom: 7px;
-        }
+        /* BOARD */
 
         .boardHeading {
           display: flex;
@@ -1204,6 +1276,14 @@ export default function Home() {
           align-items: flex-end;
           gap: 20px;
           margin: 20px 5px;
+        }
+
+        .eyebrow {
+          color: #85937f;
+          letter-spacing: 3px;
+          font-size: 11px;
+          font-weight: 800;
+          margin-bottom: 7px;
         }
 
         .boardHeading h2,
@@ -1225,14 +1305,14 @@ export default function Home() {
           padding: 8px 14px;
           font-size: 12px;
           font-weight: 700;
-          white-space: nowrap;
         }
 
         .boardFrame {
           background: #9d6c3d;
           padding: 11px;
           border-radius: 8px;
-          box-shadow: 0 12px 30px
+          box-shadow:
+            0 12px 30px
             rgba(65, 42, 22, 0.18);
         }
 
@@ -1244,45 +1324,42 @@ export default function Home() {
           background-color: #cfa36e;
           background-image:
             radial-gradient(
-              rgba(91, 58, 30, 0.13) 1px,
+              rgba(91, 58, 30, 0.13)
+                1px,
               transparent 1px
             ),
             radial-gradient(
-              rgba(255, 255, 255, 0.09) 1px,
+              rgba(255, 255, 255, 0.09)
+                1px,
               transparent 1px
             );
           background-size: 8px 8px;
-          background-position: 0 0, 4px 4px;
+          background-position:
+            0 0,
+            4px 4px;
         }
 
         .stickyGrid {
           display: grid;
-          grid-template-columns: repeat(
-            auto-fit,
-            minmax(180px, 1fr)
-          );
+          grid-template-columns:
+            repeat(
+              auto-fit,
+              minmax(180px, 1fr)
+            );
           gap: 30px;
         }
 
         .sticky {
           position: relative;
-          min-width: 0;
           min-height: 205px;
           border: 0;
           padding: 38px 20px 20px;
           cursor: pointer;
           text-align: left;
           color: #354038;
-          box-shadow: 4px 7px 13px
+          box-shadow:
+            4px 7px 13px
             rgba(68, 43, 23, 0.23);
-          transition:
-            transform 0.15s ease,
-            box-shadow 0.15s ease;
-        }
-
-        .sticky:hover {
-          box-shadow: 5px 10px 18px
-            rgba(68, 43, 23, 0.3);
         }
 
         .sticky strong {
@@ -1291,14 +1368,13 @@ export default function Home() {
           font-family: Georgia, serif;
           font-size: 20px;
           margin-bottom: 13px;
-          overflow-wrap: anywhere;
         }
 
-        .sticky > span:not(.pin) {
+        .sticky
+          > span:not(.pin) {
           display: block;
           margin: 8px 0;
           font-size: 14px;
-          overflow-wrap: anywhere;
         }
 
         .sticky small {
@@ -1317,7 +1393,8 @@ export default function Home() {
           transform: translateX(-50%);
           border-radius: 50%;
           background: #ca4949;
-          box-shadow: 0 3px 4px
+          box-shadow:
+            0 3px 4px
             rgba(0, 0, 0, 0.25);
         }
 
@@ -1325,7 +1402,8 @@ export default function Home() {
           width: 32px;
           height: 1px;
           margin: 0 auto 15px;
-          background: rgba(40, 50, 40, 0.2);
+          background:
+            rgba(40, 50, 40, 0.2);
         }
 
         .boardQuote {
@@ -1335,7 +1413,8 @@ export default function Home() {
           font-family: Georgia, serif;
           font-style: italic;
           transform: rotate(-3deg);
-          color: rgba(75, 52, 34, 0.7);
+          color:
+            rgba(75, 52, 34, 0.7);
           font-size: 13px;
         }
 
@@ -1345,6 +1424,8 @@ export default function Home() {
           line-height: 2;
         }
 
+        /* CONTENT */
+
         .contentCard {
           max-width: 720px;
           margin: 20px auto;
@@ -1352,7 +1433,8 @@ export default function Home() {
           background: #fffef9;
           border: 1px solid #e7e5da;
           border-radius: 14px;
-          box-shadow: 0 7px 25px
+          box-shadow:
+            0 7px 25px
             rgba(0, 0, 0, 0.05);
         }
 
@@ -1362,11 +1444,6 @@ export default function Home() {
           padding: 55px 20px;
           color: #727970;
           line-height: 1.7;
-        }
-
-        .bigIcon {
-          font-size: 38px;
-          margin-bottom: 12px;
         }
 
         .primaryButton,
@@ -1391,6 +1468,8 @@ export default function Home() {
           color: #455745;
         }
 
+        /* PROFILE */
+
         .profileForm {
           display: grid;
           gap: 17px;
@@ -1406,7 +1485,6 @@ export default function Home() {
 
         .profileForm input {
           width: 100%;
-          min-width: 0;
           border: 1px solid #d2d6ce;
           border-radius: 8px;
           background: white;
@@ -1415,57 +1493,37 @@ export default function Home() {
           outline: none;
         }
 
-        .profileForm input:focus,
-        .chatInput input:focus {
-          border-color: #718b6d;
-          outline: 2px solid
-            rgba(113, 139, 109, 0.12);
-        }
-
-        .profileSaved {
-          margin-top: 18px;
-          padding: 12px;
-          border-radius: 8px;
-          background: #edf4e9;
-          color: #5a6e57;
-          font-size: 12px;
-          line-height: 1.6;
-        }
-
         .myPageNotification {
           width: 100%;
-          margin: 20px 0 5px;
+          margin-top: 22px;
           border: 0;
-          border-radius: 12px;
+          border-radius: 10px;
           padding: 15px;
           background: #fff0f0;
           cursor: pointer;
           font-weight: 700;
           color: #5c4444;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
         }
 
-        .notificationNumber {
-          flex-shrink: 0;
+        .myPageNotification span {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 27px;
-          height: 27px;
-          padding: 0 7px;
-          border-radius: 50px;
+          margin-left: 10px;
+          min-width: 24px;
+          height: 24px;
+          padding: 0 6px;
+          border-radius: 20px;
           background: #e43c3c;
           color: white;
-          font-size: 12px;
         }
+
+        /* CONVERSATION LIST */
 
         .conversationList {
           margin-top: 20px;
           display: grid;
-          gap: 5px;
+          gap: 8px;
         }
 
         .conversation {
@@ -1475,15 +1533,11 @@ export default function Home() {
           gap: 13px;
           padding: 14px;
           border: 0;
-          border-bottom: 1px solid #ecebe4;
+          border-bottom:
+            1px solid #ecebe4;
           background: transparent;
           cursor: pointer;
           text-align: left;
-          border-radius: 8px;
-        }
-
-        .conversation:hover {
-          background: #f7f7f1;
         }
 
         .avatar {
@@ -1525,14 +1579,16 @@ export default function Home() {
           color: white;
           font-size: 12px;
           font-weight: 800;
-          flex-shrink: 0;
         }
+
+        /* PROFILE MODAL */
 
         .overlay {
           position: fixed;
           inset: 0;
           z-index: 2000;
-          background: rgba(36, 44, 38, 0.52);
+          background:
+            rgba(36, 44, 38, 0.52);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1542,12 +1598,11 @@ export default function Home() {
         .profileModal {
           position: relative;
           width: min(410px, 100%);
-          max-height: calc(100dvh - 40px);
-          overflow-y: auto;
           background: #fffdf2;
           padding: 37px 30px 28px;
           border-radius: 10px;
-          box-shadow: 0 25px 70px
+          box-shadow:
+            0 25px 70px
             rgba(0, 0, 0, 0.25);
         }
 
@@ -1555,7 +1610,6 @@ export default function Home() {
           text-align: center;
           font-family: Georgia, serif;
           font-size: 28px;
-          overflow-wrap: anywhere;
         }
 
         .close {
@@ -1580,69 +1634,138 @@ export default function Home() {
           display: grid;
           gap: 4px;
           padding: 12px 3px;
-          border-bottom: 1px solid #ebe8db;
-          overflow-wrap: anywhere;
+          border-bottom:
+            1px solid #ebe8db;
         }
 
         .profileItem small {
           color: #999;
         }
 
-        .chatPage {
-          width: min(680px, calc(100% - 24px));
+        /* =================================================
+           NEW DM SCREEN
+        ================================================= */
+
+        .chatApp {
+          min-height: 100dvh;
+          background: #faf9f4;
+        }
+
+        .newChatPage {
+          width: min(760px, 100%);
+          min-height: 100dvh;
           margin: 0 auto;
-          padding: 25px 0 100px;
+          padding:
+            28px 24px
+            120px;
+          display: flex;
+          flex-direction: column;
         }
 
-        .backButton {
-          border: 0;
-          background: transparent;
-          padding: 12px 0;
-          cursor: pointer;
-          color: #60705e;
-        }
-
-        .chatHeader {
-          background: #fffef9;
-          border: 1px solid #e5e4da;
-          padding: 18px 20px;
-          border-radius: 12px 12px 0 0;
+        .newBackButton {
+          align-self: flex-start;
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          gap: 15px;
+          gap: 9px;
+          border: 0;
+          background: transparent;
+          color: #435243;
+          font-size: 17px;
+          padding: 8px 3px;
+          margin-bottom: 22px;
+          cursor: pointer;
         }
 
-        .chatHeader h2 {
-          margin: 0;
-          font-family: Georgia, serif;
+        .newBackButton span {
+          font-size: 25px;
+          line-height: 1;
         }
 
-        .secureLabel {
-          color: #748072;
-          font-size: 11px;
-          white-space: nowrap;
+        .newChatHeader {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 22px;
+          background: rgba(
+            255,
+            255,
+            252,
+            0.96
+          );
+          border: 1px solid #efeee7;
+          border-radius: 22px;
+          padding: 24px 28px;
+          box-shadow:
+            0 8px 28px
+            rgba(61, 68, 56, 0.06);
         }
 
-        .chatMessages {
-          height: min(58vh, 550px);
-          overflow-y: auto;
-          padding: 20px;
-          background: #fffef9;
-          border-left: 1px solid #e5e4da;
-          border-right: 1px solid #e5e4da;
+        .chatAvatar {
+          width: 72px;
+          height: 72px;
+          flex-shrink: 0;
+          border-radius: 50%;
+          background: #e1e6d9;
+          color: #435243;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 32px;
+          font-weight: 700;
         }
 
-        .emptyChat {
+        .chatPerson {
+          min-width: 0;
+        }
+
+        .chatPerson h2 {
+          margin: 0 0 8px;
+          color: #40503f;
+          font-size: 29px;
+          line-height: 1.2;
+          overflow-wrap: anywhere;
+        }
+
+        .directMessageLabel {
+          color: #526050;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 2.5px;
+        }
+
+        .newChatMessages {
+          flex: 1;
+          min-height: 420px;
+          display: flex;
+          flex-direction: column;
+          padding: 30px 5px;
+        }
+
+        .newEmptyChat {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
           text-align: center;
-          color: #999f98;
-          padding-top: 100px;
-          line-height: 1.8;
+          transform: translateY(-20px);
         }
 
-        .coffee {
-          font-size: 30px;
-          margin-bottom: 8px;
+        .newEmptyChat strong {
+          color: #40503f;
+          font-size: 20px;
+          margin-bottom: 14px;
+        }
+
+        .newEmptyChat span {
+          color: #91958f;
+          font-size: 16px;
+        }
+
+        .messageArea {
+          width: 100%;
+          margin-top: auto;
+          padding-top: 15px;
         }
 
         .messageRow {
@@ -1656,68 +1779,125 @@ export default function Home() {
         }
 
         .bubble {
-          max-width: 78%;
-          padding: 10px 14px;
-          border-radius: 17px;
+          max-width: 75%;
+          padding: 11px 15px;
+          border-radius: 18px;
           line-height: 1.6;
           overflow-wrap: anywhere;
+          font-size: 15px;
         }
 
         .mineBubble {
-          background: #60785d;
+          background: #687d61;
           color: white;
           border-bottom-right-radius: 5px;
         }
 
         .otherBubble {
-          background: #ecece5;
+          background: white;
+          color: #3f493f;
+          border: 1px solid #e8e7df;
           border-bottom-left-radius: 5px;
         }
 
-        .chatInput {
-          display: flex;
-          gap: 8px;
-          background: #fffef9;
-          border: 1px solid #e5e4da;
-          padding: 12px;
-          border-radius: 0 0 12px 12px;
+        .newChatInputArea {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 100;
+          background:
+            rgba(
+              255,
+              255,
+              252,
+              0.97
+            );
+          border-top:
+            1px solid #e8e7df;
+          padding:
+            14px 16px
+            calc(
+              14px +
+              env(
+                safe-area-inset-bottom
+              )
+            );
         }
 
-        .chatInput input {
+        .newChatInputInner {
+          width: min(712px, 100%);
+          margin: 0 auto;
+          display: flex;
+          align-items: stretch;
+          gap: 12px;
+        }
+
+        .newChatInputInner input {
           flex: 1;
           min-width: 0;
-          border: 1px solid #d5d8d1;
-          border-radius: 8px;
-          padding: 13px;
+          height: 54px;
+          padding: 0 18px;
+          border:
+            1px solid #dcded6;
+          border-radius: 17px;
+          background: white;
+          color: #394439;
           font-size: 16px;
+          outline: none;
         }
 
-        .chatInput button {
+        .newChatInputInner input:focus {
+          border-color: #8a9983;
+        }
+
+        .newChatInputInner input::placeholder {
+          color: #a2a5a0;
+        }
+
+        .newChatInputInner button {
+          width: 92px;
           border: 0;
-          background: #567653;
+          border-radius: 17px;
+          background: #687b60;
           color: white;
-          border-radius: 8px;
-          padding: 0 22px;
+          font-size: 16px;
           font-weight: 700;
           cursor: pointer;
-          flex-shrink: 0;
         }
+
+        .newChatInputInner
+          button:disabled {
+          opacity: 0.55;
+          cursor: default;
+        }
+
+        /* BOTTOM NAV */
 
         .bottomNav {
           position: fixed;
           z-index: 1500;
           bottom: 0;
           left: 50%;
-          transform: translateX(-50%);
+          transform:
+            translateX(-50%);
           width: min(600px, 100%);
-          min-height: 72px;
-          background: rgba(255, 255, 252, 0.97);
-          border-top: 1px solid #dedfd8;
+          height: 72px;
+          background:
+            rgba(
+              255,
+              255,
+              252,
+              0.97
+            );
+          border-top:
+            1px solid #dedfd8;
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          box-shadow: 0 -5px 20px
+          grid-template-columns:
+            repeat(3, 1fr);
+          box-shadow:
+            0 -5px 20px
             rgba(0, 0, 0, 0.06);
-          padding-bottom: env(safe-area-inset-bottom);
         }
 
         .bottomNav button {
@@ -1732,14 +1912,16 @@ export default function Home() {
           cursor: pointer;
           color: #8a9189;
           font-size: 11px;
-          min-height: 68px;
         }
 
-        .bottomNav button > span {
+        .bottomNav
+          button
+          > span {
           font-size: 20px;
         }
 
-        .bottomNav button.active {
+        .bottomNav
+          button.active {
           color: #4e694d;
           font-weight: 800;
         }
@@ -1751,7 +1933,7 @@ export default function Home() {
         .navIcon b {
           position: absolute;
           top: -8px;
-          right: -16px;
+          right: -13px;
           min-width: 18px;
           height: 18px;
           padding: 0 5px;
@@ -1764,206 +1946,273 @@ export default function Home() {
           font-size: 10px;
         }
 
-        /* iPHONE / SMARTPHONE */
+        /* =================================================
+           SMARTPHONE
+        ================================================= */
 
         @media (max-width: 650px) {
           body {
-            padding-bottom: calc(
-              76px + env(safe-area-inset-bottom)
-            );
+            padding-bottom: 80px;
           }
 
           .container {
-            width: calc(100% - 16px);
+            width:
+              calc(100% - 20px);
           }
 
           .header {
             min-height: auto;
-            padding: 18px 4px 20px;
+            padding:
+              22px 4px 25px;
             display: block;
           }
 
           .header h1 {
-            font-size: 32px;
-            letter-spacing: 1px;
+            font-size: 35px;
+            letter-spacing: 2px;
           }
 
           .header h1 span {
-            font-size: 22px;
+            font-size: 23px;
           }
 
           .header p {
-            font-size: 10px;
-            letter-spacing: 1px;
+            font-size: 11px;
+            letter-spacing: 1.5px;
           }
 
           .headerRight {
-            margin-top: 14px;
-            justify-content: space-between;
-            width: 100%;
+            margin-top: 17px;
+            justify-content:
+              space-between;
           }
 
           .loginName {
-            max-width: 52%;
+            max-width: 55%;
             overflow: hidden;
-            text-overflow: ellipsis;
+            text-overflow:
+              ellipsis;
             white-space: nowrap;
-            font-size: 13px;
-          }
-
-          .googleButton,
-          .smallButton {
-            padding: 9px 12px;
-            font-size: 12px;
           }
 
           .boardHeading {
-            align-items: flex-start;
-            margin: 8px 2px 14px;
-            gap: 8px;
+            align-items:
+              flex-start;
+            margin-top: 10px;
           }
 
           .boardHeading h2,
           .contentCard h2 {
-            font-size: 22px;
+            font-size: 24px;
           }
 
           .boardHeading p {
-            font-size: 11px;
+            font-size: 12px;
             line-height: 1.6;
           }
 
           .peopleCount {
-            font-size: 9px;
-            padding: 6px 9px;
+            white-space: nowrap;
+            font-size: 10px;
           }
 
           .boardFrame {
-            padding: 6px;
+            padding: 7px;
           }
 
           .corkBoard {
-            padding: 24px 10px 70px;
-            min-height: 440px;
+            padding:
+              28px 15px 75px;
+            min-height: 450px;
           }
 
           .stickyGrid {
-            grid-template-columns: repeat(
-              2,
-              minmax(0, 1fr)
-            );
-            gap: 16px 9px;
+            grid-template-columns:
+              repeat(
+                2,
+                minmax(0, 1fr)
+              );
+            gap: 18px 12px;
           }
 
           .sticky {
-            width: 100%;
-            min-width: 0;
-            min-height: 168px;
-            padding: 29px 9px 12px;
+            min-height: 175px;
+            padding:
+              31px 12px 14px;
           }
 
           .sticky strong {
-            font-size: 15px;
-            margin-bottom: 8px;
+            font-size: 16px;
+            margin-bottom: 9px;
           }
 
-          .sticky > span:not(.pin) {
-            font-size: 11px;
+          .sticky
+            > span:not(.pin) {
+            font-size: 12px;
             margin: 6px 0;
+            overflow-wrap:
+              anywhere;
           }
 
           .sticky small {
-            font-size: 8px;
-            margin-top: 11px;
+            font-size: 9px;
+            margin-top: 12px;
           }
 
           .pin {
-            width: 11px;
-            height: 11px;
+            width: 12px;
+            height: 12px;
           }
 
           .boardQuote {
-            font-size: 9px;
-            right: 10px;
-            bottom: 10px;
+            font-size: 10px;
+            right: 13px;
+            bottom: 12px;
           }
 
           .contentCard {
-            padding: 20px 15px;
-            margin: 8px auto;
-            border-radius: 11px;
-          }
-
-          .loginPrompt,
-          .emptyContent {
-            padding: 40px 10px;
+            padding: 22px 17px;
+            margin: 10px auto;
           }
 
           .profileModal {
-            width: 100%;
-            padding: 32px 20px 22px;
+            padding:
+              34px 22px 24px;
           }
 
-          .profileModal h2 {
-            font-size: 24px;
+          /* NEW MOBILE DM */
+
+          .chatApp {
+            height: 100dvh;
+            overflow: hidden;
           }
 
-          .chatPage {
-            width: calc(100% - 10px);
-            padding-top: 5px;
-            padding-bottom: 15px;
+          .newChatPage {
+            height: 100dvh;
+            min-height: 0;
+            padding:
+              16px 14px
+              90px;
           }
 
-          .chatHeader {
-            padding: 14px;
+          .newBackButton {
+            font-size: 15px;
+            margin-bottom: 14px;
+            padding: 5px 1px;
           }
 
-          .chatHeader h2 {
-            font-size: 20px;
+          .newBackButton span {
+            font-size: 22px;
           }
 
-          .secureLabel {
-            font-size: 9px;
+          .newChatHeader {
+            border-radius: 18px;
+            padding: 18px;
+            gap: 16px;
           }
 
-          .chatMessages {
-            height: calc(100dvh - 210px);
-            min-height: 300px;
-            padding: 12px;
+          .chatAvatar {
+            width: 58px;
+            height: 58px;
+            font-size: 25px;
           }
 
-          .bubble {
-            max-width: 84%;
+          .chatPerson h2 {
+            font-size: 23px;
+            margin-bottom: 6px;
+          }
+
+          .directMessageLabel {
+            font-size: 10px;
+            letter-spacing: 2px;
+          }
+
+          .newChatMessages {
+            min-height: 0;
+            padding:
+              20px 8px 10px;
+            overflow-y: auto;
+          }
+
+          .newEmptyChat {
+            transform:
+              translateY(-10px);
+          }
+
+          .newEmptyChat strong {
+            font-size: 17px;
+            margin-bottom: 10px;
+          }
+
+          .newEmptyChat span {
             font-size: 14px;
           }
 
-          .chatInput {
-            position: sticky;
-            bottom: 0;
-            padding: 8px;
+          .bubble {
+            max-width: 82%;
+            font-size: 14px;
           }
 
-          .chatInput input {
-            padding: 11px;
+          .newChatInputArea {
+            padding:
+              10px 12px
+              calc(
+                10px +
+                env(
+                  safe-area-inset-bottom
+                )
+              );
           }
 
-          .chatInput button {
+          .newChatInputInner {
+            gap: 8px;
+          }
+
+          .newChatInputInner input {
+            height: 50px;
+            border-radius: 15px;
             padding: 0 14px;
+            font-size: 16px;
+          }
+
+          .newChatInputInner button {
+            width: 72px;
+            border-radius: 15px;
+            font-size: 15px;
           }
 
           .bottomNav {
-            width: 100%;
+            height: 68px;
+            padding-bottom:
+              env(
+                safe-area-inset-bottom
+              );
           }
         }
 
-        @media (max-width: 360px) {
+        @media (max-width: 370px) {
           .stickyGrid {
-            grid-template-columns: 1fr;
+            grid-template-columns:
+              1fr;
           }
 
           .sticky {
             max-width: 240px;
             margin: 0 auto;
+          }
+
+          .newChatHeader {
+            padding: 15px;
+          }
+
+          .chatAvatar {
+            width: 52px;
+            height: 52px;
+            font-size: 22px;
+          }
+
+          .chatPerson h2 {
+            font-size: 20px;
           }
         }
       `}</style>
