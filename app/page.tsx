@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -5,9 +6,8 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signOut,
-  User,
+  type User,
 } from "firebase/auth";
-
 import {
   addDoc,
   collection,
@@ -21,16 +21,17 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-
 import { auth, db, googleProvider } from "./firebase";
 
 type Participant = {
   id: string;
   uid: string;
   name: string;
+  generation: string;
   occupation: string;
   industry: string;
   sns?: string;
+  oneLiner?: string;
 };
 
 type Conversation = {
@@ -67,9 +68,11 @@ export default function Home() {
   const [myProfile, setMyProfile] = useState<Participant | null>(null);
 
   const [name, setName] = useState("");
+  const [generation, setGeneration] = useState("");
   const [occupation, setOccupation] = useState("");
   const [industry, setIndustry] = useState("");
   const [sns, setSns] = useState("");
+  const [oneLiner, setOneLiner] = useState("");
 
   const [selectedParticipant, setSelectedParticipant] =
     useState<Participant | null>(null);
@@ -78,18 +81,16 @@ export default function Home() {
     useState<"board" | "messages" | "mypage">("board");
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
-
   const [activeConversation, setActiveConversation] =
     useState<Conversation | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  // =========================================================
-  // AUTH
-  // =========================================================
-
+  // Googleログイン状態
   useEffect(() => {
     return onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -97,10 +98,7 @@ export default function Home() {
     });
   }, []);
 
-  // =========================================================
-  // PARTICIPANTS
-  // =========================================================
-
+  // 掲示板の参加者を取得
   useEffect(() => {
     const q = query(
       collection(db, "participants"),
@@ -117,9 +115,11 @@ export default function Home() {
             id: item.id,
             uid: data.uid || item.id,
             name: data.name || "",
+            generation: data.generation || "",
             occupation: data.occupation || "",
             industry: data.industry || "",
             sns: data.sns || "",
+            oneLiner: data.oneLiner || "",
           };
         });
 
@@ -131,10 +131,7 @@ export default function Home() {
     );
   }, []);
 
-  // =========================================================
-  // MY PROFILE
-  // =========================================================
-
+  // 自分のプロフィールを反映
   useEffect(() => {
     if (!user) {
       setMyProfile(null);
@@ -150,21 +147,21 @@ export default function Home() {
     if (profile) {
       setMyProfile(profile);
       setName(profile.name);
+      setGeneration(profile.generation || "");
       setOccupation(profile.occupation);
       setIndustry(profile.industry);
       setSns(profile.sns || "");
+      setOneLiner(profile.oneLiner || "");
     } else {
       setMyProfile(null);
-
-      if (!name) {
-        setName(user.displayName || "");
-      }
+      setName(user.displayName || "");
+      setGeneration("");
+      setOccupation("");
+      setIndustry("");
+      setSns("");
+      setOneLiner("");
     }
   }, [user, participants]);
-
-  // =========================================================
-  // LOGIN
-  // =========================================================
 
   const loginWithGoogle = async () => {
     try {
@@ -181,7 +178,6 @@ export default function Home() {
   const logout = async () => {
     try {
       await signOut(auth);
-
       setTab("board");
       setActiveConversation(null);
       setMessages([]);
@@ -191,10 +187,7 @@ export default function Home() {
     }
   };
 
-  // =========================================================
-  // SAVE PROFILE
-  // =========================================================
-
+  // プロフィール登録・編集
   const saveProfile = async () => {
     if (!user) {
       await loginWithGoogle();
@@ -203,6 +196,18 @@ export default function Home() {
 
     if (!name.trim()) {
       alert("名前を入力してください。");
+      return;
+    }
+
+    const normalizedGeneration = generation
+      .trim()
+      .replace(/期$/, "");
+
+    if (
+      !/^\d{1,3}$/.test(normalizedGeneration) ||
+      Number(normalizedGeneration) < 1
+    ) {
+      alert("KIVO所属期を数字で入力してください。例：14");
       return;
     }
 
@@ -216,20 +221,37 @@ export default function Home() {
       return;
     }
 
+    if (oneLiner.length > 100) {
+      alert("ひとことは100文字以内で入力してください。");
+      return;
+    }
+
+    if (saving) return;
+
+    setSaving(true);
+
     try {
-      const ref = doc(db, "participants", user.uid);
+      const profileRef = doc(db, "participants", user.uid);
+
+      const profileData = {
+        uid: user.uid,
+        name: name.trim(),
+        generation: normalizedGeneration,
+        occupation: occupation.trim(),
+        industry: industry.trim(),
+        sns: sns.trim(),
+        oneLiner: oneLiner.trim(),
+        updatedAt: serverTimestamp(),
+      };
 
       await setDoc(
-        ref,
-        {
-          uid: user.uid,
-          name: name.trim(),
-          occupation: occupation.trim(),
-          industry: industry.trim(),
-          sns: sns.trim(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
+        profileRef,
+        myProfile
+          ? profileData
+          : {
+              ...profileData,
+              createdAt: serverTimestamp(),
+            },
         { merge: true }
       );
 
@@ -237,43 +259,38 @@ export default function Home() {
         id: user.uid,
         uid: user.uid,
         name: name.trim(),
+        generation: normalizedGeneration,
         occupation: occupation.trim(),
         industry: industry.trim(),
         sns: sns.trim(),
+        oneLiner: oneLiner.trim(),
       });
 
       alert("プロフィールを保存しました！");
+      setTab("board");
     } catch (error: any) {
       console.error("プロフィール保存エラー:", error);
-
       alert(
-        `プロフィールを保存できませんでした。\n${
-          error?.message || ""
-        }`
+        "プロフィールを保存できませんでした。\n" +
+          (error?.message || "")
       );
+    } finally {
+      setSaving(false);
     }
   };
 
-  // =========================================================
-  // CONVERSATION ID
-  // =========================================================
-
+  // 2人のUIDから会話IDを生成
   const makeConversationId = (uid1: string, uid2: string) => {
     return [uid1, uid2].sort().join("_");
   };
 
-  // =========================================================
-  // START DM
-  // =========================================================
-
+  // DMを開始
   const contactParticipant = async (participant: Participant) => {
     if (!user) {
       setSelectedParticipant(null);
-
       alert(
         `${participant.name}さんにDMするにはGoogleログインしてください。`
       );
-
       await loginWithGoogle();
       return;
     }
@@ -281,11 +298,9 @@ export default function Home() {
     if (!myProfile) {
       setSelectedParticipant(null);
       setTab("mypage");
-
       alert(
-        "DMを利用する前に、マイページからプロフィールを登録してください。"
+        "DMを利用する前にプロフィールを登録してください。"
       );
-
       return;
     }
 
@@ -312,14 +327,8 @@ export default function Home() {
         [participant.uid]: participant.name,
       };
 
-      const conversationRef = doc(
-        db,
-        "conversations",
-        conversationId
-      );
-
       await setDoc(
-        conversationRef,
+        doc(db, "conversations", conversationId),
         {
           members,
           memberNames,
@@ -328,38 +337,32 @@ export default function Home() {
         { merge: true }
       );
 
-      const existingConversation = conversations.find(
+      const existing = conversations.find(
         (conversation) => conversation.id === conversationId
       );
 
-      const conversation: Conversation =
-        existingConversation || {
-          id: conversationId,
-          members,
-          memberNames,
-          unread: {
-            [user.uid]: 0,
-            [participant.uid]: 0,
-          },
-        };
+      const conversation: Conversation = existing || {
+        id: conversationId,
+        members,
+        memberNames,
+        unread: {
+          [user.uid]: 0,
+          [participant.uid]: 0,
+        },
+      };
 
       setActiveConversation(conversation);
       setSelectedParticipant(null);
     } catch (error: any) {
       console.error("DM開始エラー:", error);
-
       alert(
-        `DMを開始できませんでした。\n\n${
-          error?.message || "Unknown error"
-        }`
+        "DMを開始できませんでした。\n" +
+          (error?.message || "")
       );
     }
   };
 
-  // =========================================================
-  // CONVERSATIONS
-  // =========================================================
-
+  // 自分のDM一覧を取得
   useEffect(() => {
     if (!user) {
       setConversations([]);
@@ -390,13 +393,11 @@ export default function Home() {
         list.sort((a, b) => {
           const aTime =
             a.lastMessageAt?.toMillis?.() ||
-            a.lastMessageAt?.seconds ||
-            0;
+            (a.lastMessageAt?.seconds || 0) * 1000;
 
           const bTime =
             b.lastMessageAt?.toMillis?.() ||
-            b.lastMessageAt?.seconds ||
-            0;
+            (b.lastMessageAt?.seconds || 0) * 1000;
 
           return bTime - aTime;
         });
@@ -409,22 +410,17 @@ export default function Home() {
     );
   }, [user]);
 
-  // =========================================================
-  // UNREAD
-  // =========================================================
-
   const unreadTotal = useMemo(() => {
     if (!user) return 0;
 
-    return conversations.reduce((total, conversation) => {
-      return total + (conversation.unread?.[user.uid] || 0);
-    }, 0);
+    return conversations.reduce(
+      (total, conversation) =>
+        total + (conversation.unread?.[user.uid] || 0),
+      0
+    );
   }, [conversations, user]);
 
-  // =========================================================
-  // OPEN CONVERSATION
-  // =========================================================
-
+  // 会話を開く
   const openConversation = async (conversation: Conversation) => {
     if (!user) return;
 
@@ -442,10 +438,7 @@ export default function Home() {
     }
   };
 
-  // =========================================================
-  // MESSAGES
-  // =========================================================
-
+  // メッセージ一覧
   useEffect(() => {
     if (!user || !activeConversation) {
       setMessages([]);
@@ -490,12 +483,14 @@ export default function Home() {
     );
   }, [user, activeConversation]);
 
-  // =========================================================
-  // SEND MESSAGE
-  // =========================================================
-
+  // メッセージ送信
   const sendMessage = async () => {
-    if (!user || !activeConversation || !messageText.trim()) {
+    if (
+      !user ||
+      !activeConversation ||
+      !messageText.trim() ||
+      sending
+    ) {
       return;
     }
 
@@ -506,6 +501,7 @@ export default function Home() {
     if (!otherUid) return;
 
     const text = messageText.trim();
+    setSending(true);
 
     try {
       await addDoc(
@@ -536,18 +532,18 @@ export default function Home() {
       setMessageText("");
     } catch (error: any) {
       console.error("メッセージ送信エラー:", error);
-
       alert(
-        `メッセージを送信できませんでした。\n${
-          error?.message || ""
-        }`
+        "メッセージを送信できませんでした。\n" +
+          (error?.message || "")
       );
+    } finally {
+      setSending(false);
     }
   };
 
-  // =========================================================
-  // CHAT SCREEN
-  // =========================================================
+  // ==========================================
+  // DM画面
+  // ==========================================
 
   if (activeConversation && user) {
     const otherUid = activeConversation.members.find(
@@ -589,19 +585,13 @@ export default function Home() {
           <section className="newChatMessages">
             {messages.length === 0 ? (
               <div className="newEmptyChat">
-                <strong>
-                  まだメッセージはありません。
-                </strong>
-
-                <span>
-                  気軽に話しかけてみましょう。
-                </span>
+                <strong>まだメッセージはありません。</strong>
+                <span>気軽に話しかけてみましょう。</span>
               </div>
             ) : (
               <div className="messageArea">
                 {messages.map((message) => {
-                  const mine =
-                    message.senderUid === user.uid;
+                  const mine = message.senderUid === user.uid;
 
                   return (
                     <div
@@ -636,7 +626,7 @@ export default function Home() {
                   setMessageText(e.target.value)
                 }
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === "Enter" && !sending) {
                     sendMessage();
                   }
                 }}
@@ -645,9 +635,9 @@ export default function Home() {
 
               <button
                 onClick={sendMessage}
-                disabled={!messageText.trim()}
+                disabled={!messageText.trim() || sending}
               >
-                送信
+                {sending ? "送信中" : "送信"}
               </button>
             </div>
           </div>
@@ -656,9 +646,9 @@ export default function Home() {
     );
   }
 
-  // =========================================================
-  // MAIN UI
-  // =========================================================
+  // ==========================================
+  // 掲示板・DM一覧・マイページ
+  // ==========================================
 
   return (
     <main className="app">
@@ -668,7 +658,6 @@ export default function Home() {
             <h1>
               KIVO Cafe <span>☕</span>
             </h1>
-
             <p>つながる・ひろがる・また会える</p>
           </div>
 
@@ -682,7 +671,6 @@ export default function Home() {
                     user.displayName ||
                     "ログイン中"}
                 </span>
-
                 <button
                   className="smallButton"
                   onClick={logout}
@@ -702,10 +690,10 @@ export default function Home() {
         </header>
 
         {loginMessage && (
-          <div className="errorMessage">
-            {loginMessage}
-          </div>
+          <div className="errorMessage">{loginMessage}</div>
         )}
+
+        {/* 掲示板 */}
 
         {tab === "board" && (
           <>
@@ -714,9 +702,7 @@ export default function Home() {
                 <div className="eyebrow">
                   COMMUNITY BOARD
                 </div>
-
                 <h2>👥 参加者のみなさん</h2>
-
                 <p>
                   ログインしなくても参加者のプロフィールを
                   見ることができます。
@@ -738,62 +724,58 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="stickyGrid">
-                    {participants.map(
-                      (participant, index) => (
-                        <button
-                          key={participant.id}
-                          className="sticky"
-                          style={{
-                            background:
-                              stickyColors[
-                                index %
-                                  stickyColors.length
-                              ],
+                    {participants.map((participant, index) => (
+                      <button
+                        key={participant.id}
+                        className="sticky"
+                        style={{
+                          background:
+                            stickyColors[
+                              index % stickyColors.length
+                            ],
+                          transform: `rotate(${
+                            index % 2 === 0 ? "-1deg" : "1deg"
+                          })`,
+                        }}
+                        onClick={() =>
+                          setSelectedParticipant(participant)
+                        }
+                      >
+                        <span className="pin" />
 
-                            transform: `rotate(${
-                              index % 2 === 0
-                                ? "-1deg"
-                                : "1deg"
-                            })`,
-                          }}
-                          onClick={() =>
-                            setSelectedParticipant(
-                              participant
-                            )
-                          }
-                        >
-                          <span className="pin" />
-
-                          <strong>
-                            {participant.name}
-                          </strong>
-
-                          <div className="stickyLine" />
-
-                          <span>
-                            💼{" "}
-                            {participant.occupation ||
-                              "未設定"}
-                          </span>
-
-                          <span>
-                            🏷️{" "}
-                            {participant.industry ||
-                              "未設定"}
-                          </span>
-
-                          {participant.sns && (
-                            <span>
-                              📱 {participant.sns}
+                        <strong className="stickyName">
+                          {participant.name}
+                          {participant.generation && (
+                            <span className="generationLabel">
+                              {" "}
+                              {participant.generation}期
                             </span>
                           )}
+                        </strong>
 
-                          <small>
-                            プロフィールを見る →
-                          </small>
-                        </button>
-                      )
-                    )}
+                        <div className="stickyLine" />
+
+                        <span>
+                          💼 {participant.occupation || "未設定"}
+                        </span>
+
+                        <span>
+                          🏷️ {participant.industry || "未設定"}
+                        </span>
+
+                        {participant.sns && (
+                          <span>📱 {participant.sns}</span>
+                        )}
+
+                        {participant.oneLiner && (
+                          <span className="stickyOneLiner">
+                            💬 {participant.oneLiner}
+                          </span>
+                        )}
+
+                        <small>プロフィールを見る →</small>
+                      </button>
+                    ))}
                   </div>
                 )}
 
@@ -809,25 +791,20 @@ export default function Home() {
           </>
         )}
 
+        {/* DM一覧 */}
+
         {tab === "messages" && (
           <section className="contentCard">
-            <div className="eyebrow">
-              MESSAGES
-            </div>
-
+            <div className="eyebrow">MESSAGES</div>
             <h2>💬 メッセージ</h2>
 
             {!user ? (
               <div className="loginPrompt">
-                <h3>
-                  メッセージを見るにはログイン
-                </h3>
-
+                <h3>メッセージを見るにはログイン</h3>
                 <p>
                   DMは会話している本人同士だけが
                   確認できます。
                 </p>
-
                 <button
                   className="primaryButton"
                   onClick={loginWithGoogle}
@@ -837,20 +814,13 @@ export default function Home() {
               </div>
             ) : !myProfile ? (
               <div className="loginPrompt">
-                <h3>
-                  まずプロフィールを登録してください
-                </h3>
-
+                <h3>まずプロフィールを登録してください</h3>
                 <p>
-                  プロフィール登録後にDMを
-                  利用できます。
+                  プロフィール登録後にDMを利用できます。
                 </p>
-
                 <button
                   className="primaryButton"
-                  onClick={() =>
-                    setTab("mypage")
-                  }
+                  onClick={() => setTab("mypage")}
                 >
                   マイページへ
                 </button>
@@ -864,85 +834,63 @@ export default function Home() {
               </div>
             ) : (
               <div className="conversationList">
-                {conversations.map(
-                  (conversation) => {
-                    const otherUid =
-                      conversation.members.find(
-                        (uid) =>
-                          uid !== user.uid
-                      );
+                {conversations.map((conversation) => {
+                  const otherUid = conversation.members.find(
+                    (uid) => uid !== user.uid
+                  );
 
-                    const otherName =
-                      (otherUid &&
-                        conversation.memberNames?.[
-                          otherUid
-                        ]) ||
-                      "参加者";
+                  const otherName =
+                    (otherUid &&
+                      conversation.memberNames?.[otherUid]) ||
+                    "参加者";
 
-                    const unread =
-                      conversation.unread?.[
-                        user.uid
-                      ] || 0;
+                  const unread =
+                    conversation.unread?.[user.uid] || 0;
 
-                    return (
-                      <button
-                        key={conversation.id}
-                        className="conversation"
-                        onClick={() =>
-                          openConversation(
-                            conversation
-                          )
-                        }
-                      >
-                        <div className="avatar">
-                          {otherName.charAt(0)}
-                        </div>
+                  return (
+                    <button
+                      key={conversation.id}
+                      className="conversation"
+                      onClick={() =>
+                        openConversation(conversation)
+                      }
+                    >
+                      <div className="avatar">
+                        {otherName.charAt(0)}
+                      </div>
 
-                        <div className="conversationText">
-                          <strong>
-                            {otherName}
-                          </strong>
+                      <div className="conversationText">
+                        <strong>{otherName}</strong>
+                        <span>
+                          {conversation.lastMessage ||
+                            "会話を始めましょう"}
+                        </span>
+                      </div>
 
-                          <span>
-                            {conversation.lastMessage ||
-                              "会話を始めましょう"}
-                          </span>
-                        </div>
-
-                        {unread > 0 && (
-                          <span className="unreadBadge">
-                            {unread > 99
-                              ? "99+"
-                              : unread}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  }
-                )}
+                      {unread > 0 && (
+                        <span className="unreadBadge">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </section>
         )}
 
+        {/* マイページ */}
+
         {tab === "mypage" && (
           <section className="contentCard">
-            <div className="eyebrow">
-              MY PAGE
-            </div>
-
+            <div className="eyebrow">MY PAGE</div>
             <h2>👤 マイページ</h2>
 
             {!user ? (
               <div className="loginPrompt">
-                <h3>
-                  あなた専用のマイページ
-                </h3>
-
-                <p>
-                  Googleアカウントで本人確認します。
-                </p>
-
+                <h3>あなた専用のマイページ</h3>
+                <p>Googleアカウントで本人確認します。</p>
                 <button
                   className="primaryButton"
                   onClick={loginWithGoogle}
@@ -955,16 +903,11 @@ export default function Home() {
                 {unreadTotal > 0 && (
                   <button
                     className="myPageNotification"
-                    onClick={() =>
-                      setTab("messages")
-                    }
+                    onClick={() => setTab("messages")}
                   >
                     💬 新着メッセージがあります
-
                     <span>
-                      {unreadTotal > 99
-                        ? "99+"
-                        : unreadTotal}
+                      {unreadTotal > 99 ? "99+" : unreadTotal}
                     </span>
                   </button>
                 )}
@@ -974,11 +917,27 @@ export default function Home() {
                     名前
                     <input
                       value={name}
-                      onChange={(e) =>
-                        setName(e.target.value)
-                      }
+                      onChange={(e) => setName(e.target.value)}
                       placeholder="例）山口 耕平"
+                      maxLength={50}
                     />
+                  </label>
+
+                  <label>
+                    KIVO所属期
+                    <div className="generationInputWrap">
+                      <input
+                        type="number"
+                        min="1"
+                        max="999"
+                        value={generation}
+                        onChange={(e) =>
+                          setGeneration(e.target.value)
+                        }
+                        placeholder="例）14"
+                      />
+                      <span>期</span>
+                    </div>
                   </label>
 
                   <label>
@@ -986,11 +945,9 @@ export default function Home() {
                     <input
                       value={occupation}
                       onChange={(e) =>
-                        setOccupation(
-                          e.target.value
-                        )
+                        setOccupation(e.target.value)
                       }
-                      placeholder="例）大学院生"
+                      placeholder="例）会社員"
                     />
                   </label>
 
@@ -999,11 +956,9 @@ export default function Home() {
                     <input
                       value={industry}
                       onChange={(e) =>
-                        setIndustry(
-                          e.target.value
-                        )
+                        setIndustry(e.target.value)
                       }
-                      placeholder="例）教育"
+                      placeholder="例）コンサルティング"
                     />
                   </label>
 
@@ -1011,18 +966,36 @@ export default function Home() {
                     SNSユーザーネーム
                     <input
                       value={sns}
-                      onChange={(e) =>
-                        setSns(e.target.value)
-                      }
+                      onChange={(e) => setSns(e.target.value)}
                       placeholder="例）@kohei_y"
                     />
+                  </label>
+
+                  <label>
+                    ひとこと（任意）
+                    <textarea
+                      className="oneLinerInput"
+                      value={oneLiner}
+                      onChange={(e) =>
+                        setOneLiner(e.target.value)
+                      }
+                      maxLength={100}
+                      rows={3}
+                      placeholder="例）久しぶりに皆さんと会えるのが楽しみです！"
+                    />
+                    <span className="characterCount">
+                      {oneLiner.length}/100文字
+                    </span>
                   </label>
 
                   <button
                     className="primaryButton"
                     onClick={saveProfile}
+                    disabled={saving}
                   >
-                    {myProfile
+                    {saving
+                      ? "保存中..."
+                      : myProfile
                       ? "プロフィールを更新"
                       : "プロフィールを登録"}
                   </button>
@@ -1033,11 +1006,11 @@ export default function Home() {
         )}
       </div>
 
+      {/* 下部ナビゲーション */}
+
       <nav className="bottomNav">
         <button
-          className={
-            tab === "board" ? "active" : ""
-          }
+          className={tab === "board" ? "active" : ""}
           onClick={() => setTab("board")}
         >
           <span>📌</span>
@@ -1045,30 +1018,22 @@ export default function Home() {
         </button>
 
         <button
-          className={
-            tab === "messages" ? "active" : ""
-          }
+          className={tab === "messages" ? "active" : ""}
           onClick={() => setTab("messages")}
         >
           <span className="navIcon">
             💬
-
             {unreadTotal > 0 && (
               <b>
-                {unreadTotal > 99
-                  ? "99+"
-                  : unreadTotal}
+                {unreadTotal > 99 ? "99+" : unreadTotal}
               </b>
             )}
           </span>
-
           DM
         </button>
 
         <button
-          className={
-            tab === "mypage" ? "active" : ""
-          }
+          className={tab === "mypage" ? "active" : ""}
           onClick={() => setTab("mypage")}
         >
           <span>👤</span>
@@ -1076,24 +1041,20 @@ export default function Home() {
         </button>
       </nav>
 
+      {/* 参加者プロフィール詳細 */}
+
       {selectedParticipant && (
         <div
           className="overlay"
-          onClick={() =>
-            setSelectedParticipant(null)
-          }
+          onClick={() => setSelectedParticipant(null)}
         >
           <div
             className="profileModal"
-            onClick={(e) =>
-              e.stopPropagation()
-            }
+            onClick={(e) => e.stopPropagation()}
           >
             <button
               className="close"
-              onClick={() =>
-                setSelectedParticipant(null)
-              }
+              onClick={() => setSelectedParticipant(null)}
             >
               ×
             </button>
@@ -1102,35 +1063,45 @@ export default function Home() {
 
             <h2>
               {selectedParticipant.name}
+              {selectedParticipant.generation && (
+                <span className="modalGeneration">
+                  {" "}
+                  {selectedParticipant.generation}期
+                </span>
+              )}
             </h2>
 
             <div className="profileItem">
               <small>職業</small>
               <span>
-                {selectedParticipant.occupation ||
-                  "未設定"}
+                {selectedParticipant.occupation || "未設定"}
               </span>
             </div>
 
             <div className="profileItem">
               <small>業界</small>
               <span>
-                {selectedParticipant.industry ||
-                  "未設定"}
+                {selectedParticipant.industry || "未設定"}
               </span>
             </div>
 
             {selectedParticipant.sns && (
               <div className="profileItem">
                 <small>SNS</small>
-                <span>
-                  {selectedParticipant.sns}
+                <span>{selectedParticipant.sns}</span>
+              </div>
+            )}
+
+            {selectedParticipant.oneLiner && (
+              <div className="profileItem">
+                <small>ひとこと</small>
+                <span className="oneLinerDetail">
+                  {selectedParticipant.oneLiner}
                 </span>
               </div>
             )}
 
-            {user?.uid ===
-            selectedParticipant.uid ? (
+            {user?.uid === selectedParticipant.uid ? (
               <button
                 className="secondaryButton"
                 onClick={() => {
@@ -1144,9 +1115,7 @@ export default function Home() {
               <button
                 className="primaryButton"
                 onClick={() =>
-                  contactParticipant(
-                    selectedParticipant
-                  )
+                  contactParticipant(selectedParticipant)
                 }
               >
                 ✉ この人にDMする
@@ -1155,6 +1124,8 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* 掲示板・マイページ用デザイン */}
 
       <style>{`
         * {
@@ -1165,17 +1136,11 @@ export default function Home() {
         body {
           margin: 0;
           padding: 0;
-          width: 100%;
-          min-height: 100%;
-          background: #f8f7f0;
-        }
-
-        body {
-          padding-bottom: 90px;
         }
 
         button,
-        input {
+        input,
+        textarea {
           font-family: inherit;
         }
 
@@ -1199,14 +1164,10 @@ export default function Home() {
         }
 
         .container {
-          width: min(
-            1180px,
-            calc(100% - 32px)
-          );
+          width: min(1180px, calc(100% - 32px));
           margin: 0 auto;
+          padding-bottom: 100px;
         }
-
-        /* HEADER */
 
         .header {
           min-height: 130px;
@@ -1220,11 +1181,7 @@ export default function Home() {
         .header h1 {
           margin: 0;
           font-family: Georgia, serif;
-          font-size: clamp(
-            36px,
-            6vw,
-            56px
-          );
+          font-size: clamp(36px, 6vw, 56px);
           font-weight: 500;
           letter-spacing: 3px;
           color: #365046;
@@ -1268,8 +1225,6 @@ export default function Home() {
           border-radius: 7px;
         }
 
-        /* BOARD */
-
         .boardHeading {
           display: flex;
           justify-content: space-between;
@@ -1305,6 +1260,7 @@ export default function Home() {
           padding: 8px 14px;
           font-size: 12px;
           font-weight: 700;
+          white-space: nowrap;
         }
 
         .boardFrame {
@@ -1312,8 +1268,7 @@ export default function Home() {
           padding: 11px;
           border-radius: 8px;
           box-shadow:
-            0 12px 30px
-            rgba(65, 42, 22, 0.18);
+            0 12px 30px rgba(65, 42, 22, 0.18);
         }
 
         .corkBoard {
@@ -1324,28 +1279,21 @@ export default function Home() {
           background-color: #cfa36e;
           background-image:
             radial-gradient(
-              rgba(91, 58, 30, 0.13)
-                1px,
+              rgba(91, 58, 30, 0.13) 1px,
               transparent 1px
             ),
             radial-gradient(
-              rgba(255, 255, 255, 0.09)
-                1px,
+              rgba(255, 255, 255, 0.09) 1px,
               transparent 1px
             );
           background-size: 8px 8px;
-          background-position:
-            0 0,
-            4px 4px;
+          background-position: 0 0, 4px 4px;
         }
 
         .stickyGrid {
           display: grid;
           grid-template-columns:
-            repeat(
-              auto-fit,
-              minmax(180px, 1fr)
-            );
+            repeat(auto-fit, minmax(180px, 1fr));
           gap: 30px;
         }
 
@@ -1358,8 +1306,7 @@ export default function Home() {
           text-align: left;
           color: #354038;
           box-shadow:
-            4px 7px 13px
-            rgba(68, 43, 23, 0.23);
+            4px 7px 13px rgba(68, 43, 23, 0.23);
         }
 
         .sticky strong {
@@ -1368,13 +1315,34 @@ export default function Home() {
           font-family: Georgia, serif;
           font-size: 20px;
           margin-bottom: 13px;
+          overflow-wrap: anywhere;
         }
 
-        .sticky
-          > span:not(.pin) {
+        .sticky .generationLabel {
+          display: inline;
+          font-family: "Yu Gothic", Meiryo, sans-serif;
+          font-size: 0.7em;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .sticky > span:not(.pin) {
           display: block;
           margin: 8px 0;
           font-size: 14px;
+          overflow-wrap: anywhere;
+        }
+
+        .sticky .stickyOneLiner {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 3;
+          line-clamp: 3;
+          overflow: hidden;
+          white-space: pre-wrap;
+          line-height: 1.5;
+          margin-top: 12px;
+          font-size: 12px;
         }
 
         .sticky small {
@@ -1394,16 +1362,14 @@ export default function Home() {
           border-radius: 50%;
           background: #ca4949;
           box-shadow:
-            0 3px 4px
-            rgba(0, 0, 0, 0.25);
+            0 3px 4px rgba(0, 0, 0, 0.25);
         }
 
         .stickyLine {
           width: 32px;
           height: 1px;
           margin: 0 auto 15px;
-          background:
-            rgba(40, 50, 40, 0.2);
+          background: rgba(40, 50, 40, 0.2);
         }
 
         .boardQuote {
@@ -1413,8 +1379,7 @@ export default function Home() {
           font-family: Georgia, serif;
           font-style: italic;
           transform: rotate(-3deg);
-          color:
-            rgba(75, 52, 34, 0.7);
+          color: rgba(75, 52, 34, 0.7);
           font-size: 13px;
         }
 
@@ -1424,8 +1389,6 @@ export default function Home() {
           line-height: 2;
         }
 
-        /* CONTENT */
-
         .contentCard {
           max-width: 720px;
           margin: 20px auto;
@@ -1434,8 +1397,7 @@ export default function Home() {
           border: 1px solid #e7e5da;
           border-radius: 14px;
           box-shadow:
-            0 7px 25px
-            rgba(0, 0, 0, 0.05);
+            0 7px 25px rgba(0, 0, 0, 0.05);
         }
 
         .loginPrompt,
@@ -1463,12 +1425,15 @@ export default function Home() {
           color: white;
         }
 
+        .primaryButton:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+
         .secondaryButton {
           background: #e9eee5;
           color: #455745;
         }
-
-        /* PROFILE */
 
         .profileForm {
           display: grid;
@@ -1483,7 +1448,8 @@ export default function Home() {
           font-weight: 700;
         }
 
-        .profileForm input {
+        .profileForm input,
+        .profileForm textarea {
           width: 100%;
           border: 1px solid #d2d6ce;
           border-radius: 8px;
@@ -1491,6 +1457,33 @@ export default function Home() {
           padding: 13px;
           font-size: 16px;
           outline: none;
+          color: #344039;
+        }
+
+        .profileForm textarea {
+          resize: vertical;
+          line-height: 1.6;
+        }
+
+        .generationInputWrap {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .generationInputWrap input {
+          max-width: 160px;
+        }
+
+        .generationInputWrap span {
+          font-size: 16px;
+        }
+
+        .characterCount {
+          text-align: right;
+          font-size: 12px;
+          color: #788177;
+          font-weight: 400;
         }
 
         .myPageNotification {
@@ -1518,8 +1511,6 @@ export default function Home() {
           color: white;
         }
 
-        /* CONVERSATION LIST */
-
         .conversationList {
           margin-top: 20px;
           display: grid;
@@ -1533,8 +1524,7 @@ export default function Home() {
           gap: 13px;
           padding: 14px;
           border: 0;
-          border-bottom:
-            1px solid #ecebe4;
+          border-bottom: 1px solid #ecebe4;
           background: transparent;
           cursor: pointer;
           text-align: left;
@@ -1581,14 +1571,11 @@ export default function Home() {
           font-weight: 800;
         }
 
-        /* PROFILE MODAL */
-
         .overlay {
           position: fixed;
           inset: 0;
           z-index: 2000;
-          background:
-            rgba(36, 44, 38, 0.52);
+          background: rgba(36, 44, 38, 0.52);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1598,18 +1585,26 @@ export default function Home() {
         .profileModal {
           position: relative;
           width: min(410px, 100%);
+          max-height: 90dvh;
+          overflow-y: auto;
           background: #fffdf2;
           padding: 37px 30px 28px;
           border-radius: 10px;
           box-shadow:
-            0 25px 70px
-            rgba(0, 0, 0, 0.25);
+            0 25px 70px rgba(0, 0, 0, 0.25);
         }
 
         .profileModal h2 {
           text-align: center;
           font-family: Georgia, serif;
           font-size: 28px;
+          overflow-wrap: anywhere;
+        }
+
+        .modalGeneration {
+          font-family: "Yu Gothic", Meiryo, sans-serif;
+          font-size: 0.6em;
+          white-space: nowrap;
         }
 
         .close {
@@ -1634,270 +1629,33 @@ export default function Home() {
           display: grid;
           gap: 4px;
           padding: 12px 3px;
-          border-bottom:
-            1px solid #ebe8db;
+          border-bottom: 1px solid #ebe8db;
         }
 
         .profileItem small {
           color: #999;
         }
 
-        /* =================================================
-           NEW DM SCREEN
-        ================================================= */
-
-        .chatApp {
-          min-height: 100dvh;
-          background: #faf9f4;
-        }
-
-        .newChatPage {
-          width: min(760px, 100%);
-          min-height: 100dvh;
-          margin: 0 auto;
-          padding:
-            28px 24px
-            120px;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .newBackButton {
-          align-self: flex-start;
-          display: flex;
-          align-items: center;
-          gap: 9px;
-          border: 0;
-          background: transparent;
-          color: #435243;
-          font-size: 17px;
-          padding: 8px 3px;
-          margin-bottom: 22px;
-          cursor: pointer;
-        }
-
-        .newBackButton span {
-          font-size: 25px;
-          line-height: 1;
-        }
-
-        .newChatHeader {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          gap: 22px;
-          background: rgba(
-            255,
-            255,
-            252,
-            0.96
-          );
-          border: 1px solid #efeee7;
-          border-radius: 22px;
-          padding: 24px 28px;
-          box-shadow:
-            0 8px 28px
-            rgba(61, 68, 56, 0.06);
-        }
-
-        .chatAvatar {
-          width: 72px;
-          height: 72px;
-          flex-shrink: 0;
-          border-radius: 50%;
-          background: #e1e6d9;
-          color: #435243;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 32px;
-          font-weight: 700;
-        }
-
-        .chatPerson {
-          min-width: 0;
-        }
-
-        .chatPerson h2 {
-          margin: 0 0 8px;
-          color: #40503f;
-          font-size: 29px;
-          line-height: 1.2;
+        .oneLinerDetail {
+          white-space: pre-wrap;
           overflow-wrap: anywhere;
-        }
-
-        .directMessageLabel {
-          color: #526050;
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 2.5px;
-        }
-
-        .newChatMessages {
-          flex: 1;
-          min-height: 420px;
-          display: flex;
-          flex-direction: column;
-          padding: 30px 5px;
-        }
-
-        .newEmptyChat {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          transform: translateY(-20px);
-        }
-
-        .newEmptyChat strong {
-          color: #40503f;
-          font-size: 20px;
-          margin-bottom: 14px;
-        }
-
-        .newEmptyChat span {
-          color: #91958f;
-          font-size: 16px;
-        }
-
-        .messageArea {
-          width: 100%;
-          margin-top: auto;
-          padding-top: 15px;
-        }
-
-        .messageRow {
-          display: flex;
-          justify-content: flex-start;
-          margin-bottom: 12px;
-        }
-
-        .messageRow.mine {
-          justify-content: flex-end;
-        }
-
-        .bubble {
-          max-width: 75%;
-          padding: 11px 15px;
-          border-radius: 18px;
           line-height: 1.6;
-          overflow-wrap: anywhere;
-          font-size: 15px;
         }
-
-        .mineBubble {
-          background: #687d61;
-          color: white;
-          border-bottom-right-radius: 5px;
-        }
-
-        .otherBubble {
-          background: white;
-          color: #3f493f;
-          border: 1px solid #e8e7df;
-          border-bottom-left-radius: 5px;
-        }
-
-        .newChatInputArea {
-          position: fixed;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          z-index: 100;
-          background:
-            rgba(
-              255,
-              255,
-              252,
-              0.97
-            );
-          border-top:
-            1px solid #e8e7df;
-          padding:
-            14px 16px
-            calc(
-              14px +
-              env(
-                safe-area-inset-bottom
-              )
-            );
-        }
-
-        .newChatInputInner {
-          width: min(712px, 100%);
-          margin: 0 auto;
-          display: flex;
-          align-items: stretch;
-          gap: 12px;
-        }
-
-        .newChatInputInner input {
-          flex: 1;
-          min-width: 0;
-          height: 54px;
-          padding: 0 18px;
-          border:
-            1px solid #dcded6;
-          border-radius: 17px;
-          background: white;
-          color: #394439;
-          font-size: 16px;
-          outline: none;
-        }
-
-        .newChatInputInner input:focus {
-          border-color: #8a9983;
-        }
-
-        .newChatInputInner input::placeholder {
-          color: #a2a5a0;
-        }
-
-        .newChatInputInner button {
-          width: 92px;
-          border: 0;
-          border-radius: 17px;
-          background: #687b60;
-          color: white;
-          font-size: 16px;
-          font-weight: 700;
-          cursor: pointer;
-        }
-
-        .newChatInputInner
-          button:disabled {
-          opacity: 0.55;
-          cursor: default;
-        }
-
-        /* BOTTOM NAV */
 
         .bottomNav {
           position: fixed;
           z-index: 1500;
           bottom: 0;
           left: 50%;
-          transform:
-            translateX(-50%);
+          transform: translateX(-50%);
           width: min(600px, 100%);
           height: 72px;
-          background:
-            rgba(
-              255,
-              255,
-              252,
-              0.97
-            );
-          border-top:
-            1px solid #dedfd8;
+          background: rgba(255, 255, 252, 0.97);
+          border-top: 1px solid #dedfd8;
           display: grid;
-          grid-template-columns:
-            repeat(3, 1fr);
+          grid-template-columns: repeat(3, 1fr);
           box-shadow:
-            0 -5px 20px
-            rgba(0, 0, 0, 0.06);
+            0 -5px 20px rgba(0, 0, 0, 0.06);
         }
 
         .bottomNav button {
@@ -1914,14 +1672,11 @@ export default function Home() {
           font-size: 11px;
         }
 
-        .bottomNav
-          button
-          > span {
+        .bottomNav button > span {
           font-size: 20px;
         }
 
-        .bottomNav
-          button.active {
+        .bottomNav button.active {
           color: #4e694d;
           font-weight: 800;
         }
@@ -1946,24 +1701,14 @@ export default function Home() {
           font-size: 10px;
         }
 
-        /* =================================================
-           SMARTPHONE
-        ================================================= */
-
         @media (max-width: 650px) {
-          body {
-            padding-bottom: 80px;
-          }
-
           .container {
-            width:
-              calc(100% - 20px);
+            width: calc(100% - 20px);
           }
 
           .header {
             min-height: auto;
-            padding:
-              22px 4px 25px;
+            padding: 22px 4px 25px;
             display: block;
           }
 
@@ -1983,21 +1728,18 @@ export default function Home() {
 
           .headerRight {
             margin-top: 17px;
-            justify-content:
-              space-between;
+            justify-content: space-between;
           }
 
           .loginName {
             max-width: 55%;
             overflow: hidden;
-            text-overflow:
-              ellipsis;
+            text-overflow: ellipsis;
             white-space: nowrap;
           }
 
           .boardHeading {
-            align-items:
-              flex-start;
+            align-items: flex-start;
             margin-top: 10px;
           }
 
@@ -2012,7 +1754,6 @@ export default function Home() {
           }
 
           .peopleCount {
-            white-space: nowrap;
             font-size: 10px;
           }
 
@@ -2021,24 +1762,19 @@ export default function Home() {
           }
 
           .corkBoard {
-            padding:
-              28px 15px 75px;
+            padding: 28px 15px 75px;
             min-height: 450px;
           }
 
           .stickyGrid {
             grid-template-columns:
-              repeat(
-                2,
-                minmax(0, 1fr)
-              );
+              repeat(2, minmax(0, 1fr));
             gap: 18px 12px;
           }
 
           .sticky {
             min-height: 175px;
-            padding:
-              31px 12px 14px;
+            padding: 31px 12px 14px;
           }
 
           .sticky strong {
@@ -2046,12 +1782,13 @@ export default function Home() {
             margin-bottom: 9px;
           }
 
-          .sticky
-            > span:not(.pin) {
+          .sticky > span:not(.pin) {
             font-size: 12px;
             margin: 6px 0;
-            overflow-wrap:
-              anywhere;
+          }
+
+          .sticky .stickyOneLiner {
+            font-size: 11px;
           }
 
           .sticky small {
@@ -2076,143 +1813,25 @@ export default function Home() {
           }
 
           .profileModal {
-            padding:
-              34px 22px 24px;
-          }
-
-          /* NEW MOBILE DM */
-
-          .chatApp {
-            height: 100dvh;
-            overflow: hidden;
-          }
-
-          .newChatPage {
-            height: 100dvh;
-            min-height: 0;
-            padding:
-              16px 14px
-              90px;
-          }
-
-          .newBackButton {
-            font-size: 15px;
-            margin-bottom: 14px;
-            padding: 5px 1px;
-          }
-
-          .newBackButton span {
-            font-size: 22px;
-          }
-
-          .newChatHeader {
-            border-radius: 18px;
-            padding: 18px;
-            gap: 16px;
-          }
-
-          .chatAvatar {
-            width: 58px;
-            height: 58px;
-            font-size: 25px;
-          }
-
-          .chatPerson h2 {
-            font-size: 23px;
-            margin-bottom: 6px;
-          }
-
-          .directMessageLabel {
-            font-size: 10px;
-            letter-spacing: 2px;
-          }
-
-          .newChatMessages {
-            min-height: 0;
-            padding:
-              20px 8px 10px;
-            overflow-y: auto;
-          }
-
-          .newEmptyChat {
-            transform:
-              translateY(-10px);
-          }
-
-          .newEmptyChat strong {
-            font-size: 17px;
-            margin-bottom: 10px;
-          }
-
-          .newEmptyChat span {
-            font-size: 14px;
-          }
-
-          .bubble {
-            max-width: 82%;
-            font-size: 14px;
-          }
-
-          .newChatInputArea {
-            padding:
-              10px 12px
-              calc(
-                10px +
-                env(
-                  safe-area-inset-bottom
-                )
-              );
-          }
-
-          .newChatInputInner {
-            gap: 8px;
-          }
-
-          .newChatInputInner input {
-            height: 50px;
-            border-radius: 15px;
-            padding: 0 14px;
-            font-size: 16px;
-          }
-
-          .newChatInputInner button {
-            width: 72px;
-            border-radius: 15px;
-            font-size: 15px;
+            padding: 34px 22px 24px;
           }
 
           .bottomNav {
             height: 68px;
             padding-bottom:
-              env(
-                safe-area-inset-bottom
-              );
+              env(safe-area-inset-bottom);
           }
         }
 
         @media (max-width: 370px) {
           .stickyGrid {
-            grid-template-columns:
-              1fr;
+            grid-template-columns: 1fr;
           }
 
           .sticky {
             max-width: 240px;
+            width: 100%;
             margin: 0 auto;
-          }
-
-          .newChatHeader {
-            padding: 15px;
-          }
-
-          .chatAvatar {
-            width: 52px;
-            height: 52px;
-            font-size: 22px;
-          }
-
-          .chatPerson h2 {
-            font-size: 20px;
           }
         }
       `}</style>
